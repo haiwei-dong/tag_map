@@ -9,6 +9,9 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 
+// for reading a veido stream
+#include <opencv2/opencv.hpp>
+
 #include "../include/dictionary_definition.h"
 
 using namespace std;
@@ -62,7 +65,7 @@ int main(int argc, char* argv[])
     bool showRejected = 0; //show rejected candidates too
     bool estimatePose = 1; //camera instrinsic parameters. Needed for camera pose
     float markerLength = 0.34; // Marker side length (in meters). Needed for correct scale in camera pose
-    int camId; // camera id if input does not come from video
+    int camId = 0; // camera id if input does not come from video
 
     Ptr<aruco::DetectorParameters> detectorParams = aruco::DetectorParameters::create();
     bool readOk = readDetectorParameters(detector_parameter_filename, detectorParams);
@@ -86,48 +89,58 @@ int main(int argc, char* argv[])
         }
     }
 
-    Mat image, imageCopy;
-    image = imread(image_file, cv::IMREAD_COLOR);
-
-    vector<int> ids;
-    vector< vector<cv::Point2f> > corners, rejected;
-    vector<Vec3d> rvecs, tvecs;
-
-    // detect markers
-    aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
-
-    cout<<camMatrix<<endl;
-    cout<<distCoeffs<<endl;
-
-    // estimate pose
-    if(estimatePose && ids.size() > 0)
+    VideoCapture cap(camId);
+    if(!cap.isOpened())
     {
-        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, distCoeffs, rvecs, tvecs);
+        cerr << "Cannot open camera" << endl;
+        return 0;
     }
 
-    // draw results
-    image.copyTo(imageCopy);
-    if(ids.size() > 0)
+    for(;;)
     {
-        aruco::drawDetectedMarkers(imageCopy, corners, ids);
+        Mat image, imageCopy;
+//        image = imread(image_file, cv::IMREAD_COLOR);
+        cap >> image; //get a new frame from camera
 
-        if(estimatePose)
+        vector<int> ids;
+        vector< vector<cv::Point2f> > corners, rejected;
+        vector<Vec3d> rvecs, tvecs;
+
+        // detect markers
+        aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
+
+        // estimate pose
+        if(estimatePose && ids.size() > 0)
         {
-            for(unsigned int i=0; i<ids.size(); i++)
+            aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, distCoeffs, rvecs, tvecs);
+        }
+
+        // draw results
+        image.copyTo(imageCopy);
+        if(ids.size() > 0)
+        {
+            aruco::drawDetectedMarkers(imageCopy, corners, ids);
+
+            if(estimatePose)
             {
-                aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], markerLength*0.5f);
+                for(unsigned int i=0; i<ids.size(); i++)
+                {
+                    aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], markerLength*0.5f);
+                }
             }
         }
+
+        if(showRejected && rejected.size() > 0)
+        {
+            aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
+        }
+
+        imshow("detected markers", imageCopy);
+        waitKey(30); //wait for 30ms
+
+        //todo: visualize the rvecs and tvecs
+        
     }
-
-    if(showRejected && rejected.size() > 0)
-    {
-        aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
-    }
-
-    imshow("out", imageCopy);
-    waitKey(0);
-
 
     return 0;
 }
